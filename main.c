@@ -68,14 +68,14 @@ int main(void) {
      * PD7 lightsensor power
      */
 
-    clock_prescale_set(clock_div_1); // start at 8Mhz
-
     DDRB = (1 << DDB3) | (1 << DDB4);
     DDRC = (1 << DDC1) | (1 << DDC2) | (1 << DDC3) | (1 << DDC4) | (1 << DDC5);
     DDRD = (1 << DDD0) | (1 << DDD1) | (1 << DDD2) | (1 << DDD3) | (1 << DDD4) | (1 << DDD5) | (1 << DDD6);
 
     /*power consumption*/
-    DIDR0 = (1 << ADC0D) | (1 << ADC1D); // disable digital input buffer on ADC pins to minimize power consumption
+    DIDR0 = (1 << ADC0D); // disable digital input buffer on ADC pin to minimize power consumption
+    PORTB=0xE7; // pullups on unused pins of PORTB.
+    ACSR=(1<<ACD); // disable analog comparator
 
     /*timers*/
     /*RTC timer 2, clock 32.768kHz xtal*/
@@ -97,6 +97,7 @@ int main(void) {
     // set common cathodes high (OFF) for all but CCDP
     PORTD |= (1 << PORTD2) | (1 << PORTD5);
     PORTC |= (1 << PORTC1) | (1 << PORTC3);
+
 
     //display tests
 
@@ -153,6 +154,19 @@ int main(void) {
             day = (day + 1) % 31;
         }
     } while (0); // do-while(0) == test once)
+#endif
+  
+#if 1    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
+    while(1){
+// test hoe zuinig sleep is:
+        cli();
+        PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
+        ADCSRA&=~(1<<ADEN); //disable ADC
+        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+        sleep_mode(); 
+    }
+    // mostly the ADC is power hungy, 0.2 mA. The other half mA is the CPU and up to 30 uA (in light) the sensor. Timer2 runs lean
+    // so, try what power cosumption is if ADC is OFF when it is not used, and timer 2 wakes the chip to take an ADC reading each second.
 #endif
 
 #if 0 // disable to debug power usage and wake-gesture
