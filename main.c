@@ -5,7 +5,7 @@
  * Created 2024-03-22
  */
 
-// TODO: aanpassen vanaf neonhorloge. Begin eens met een test van het LED-display en daarna van de lichtsensor
+// TODO: sleep mode zuiniger maken en synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -19,7 +19,7 @@
 #define LDTHRESH 150 // 0-255 light/dark threshold for setting time /data reception. Adapt for screen brightness.
 // todo: tune for new sensor
 
-#define DIFFTHRESH 15 // 0-255 threshold fir light/dark difference for gesture detecion for 'display switch on'.
+#define DIFFTHRESH 15 // 0-255 threshold for light/dark difference for gesture detection for 'display switch on'.
 
 
 FUSES = {
@@ -90,7 +90,7 @@ int main(void) {
     /*set adc to correct ch and samplerate for autotrigger (adc clock), or disable auto trigger*/
     ADMUX = (1 << ADLAR) | (1 << REFS0); // vcc as adc reference, ADC ch0, left adjust so only upper 8 bits hace to be read
     ADCSRA = (1 << ADIE) | (1 << ADSC) | (1 << ADEN) | (1 << ADPS2); // start ADC, enable interrupt, single conversion, clock /16 (so 1M/16=62.5 kHz);
-  
+
     sei(); //enable interrupts
 
     PORTD |= (1 << PORTD7); /*Turn sensor on*/
@@ -172,8 +172,18 @@ int main(void) {
          * reduce clock to save power in the meantime (maybe could sleep instead?)
          */
 
+        PORTD |=(1<<PD7); // power on light sensor
+        PORTC |=(1<<PC0); // enable internal pull-up on lightsensor pin (as external 100k is a bit to0 much)
+        
         now = TCNT2; // to get somewhat of a fixed sample rate, use Timer 2 (RTC timer, increments at 256 Hz = overflows each second).        
-        ADCSRA |= (1 << ADSC); // start a adc conversion for light sensor. 
+        ADCSRA |= (1 << ADSC); // start a adc conversion for light sensor.
+        
+#if 0 // test another attempt at sleep mode, also does not work (display cannot be triggered to turn on again / light sensor seams 'deaf'.)
+        set_sleep_mode(SLEEP_MODE_ADC);
+        sleep_mode(); // sleep until ADC is done
+        PORTD &=~(1<<PD7); // power off light sensor
+        PORTC &=~(1<<PC0); // disable internal pull-up on lightsensor pin
+#endif         
         timeout++;
         switch (detect) { // detect change in light level / hand wave above watch, and then display the time.
                 /* higher lightsensor reading is darker. So positive diff means it got brighter and neg. diff means it got darker */
@@ -199,6 +209,8 @@ int main(void) {
             default:
                 detect = STAGE1;
         }
+
+#if 1
         clock_prescale_set(clock_div_128); // reduce clock further here, to reduce power consumption 
         // TODO: this can be made smarter, perhaps trigger lightsensor ADC on clocktick? and use interrupt? and sleep in the meantime?
         //now at 0.5 mA, depending on Vcc (@3.7V))
@@ -206,9 +218,18 @@ int main(void) {
             // wait 32/256 = 1/8 of a second, so 8 Samples/s. (125 ms)
         };
         clock_prescale_set(clock_div_8); // restore to 1 MHz
+
         if (timeout > 24) { // 24* 1/8s = 24/8s=3s
             detect = STAGE1;
         }
+#endif
+#if 0
+        if (timeout > 5) { // 5s, with 1 sample per second...
+            detect = STAGE1;
+        }
+        set_sleep_mode(SLEEP_MODE_PWR_SAVE);
+        sleep_mode(); // go to sleep for a second
+#endif // does not work
     }
     return 0;
 }
@@ -222,7 +243,10 @@ uint8_t read_time_optical() {
     succes = 0;
     //prepare so dp can be used for debug:
     PORTD = 0xA4; // all segmenst 0, all CC high except CCDP, light sensor ON
-    PORTC |= (1 << PORTC1) | (1 << PORTC3) | (1<<PORTC0) ; // CC's high (inactive), internal pullup on lightsensor-input also on 
+    PORTC |= (1 << PORTC1) | (1 << PORTC3) | (1 << PORTC0); // CC's high (inactive), internal pullup on lightsensor-input also on 
+
+    TIMSK2 &= ~(1 << TOIE2); // disable overflow interrupt, so time stops ticking
+
     do {
         now = TCNT2; // to get somewhat of a fixed sample rate, use Timer 2 (RTC timer, increments at 256 Hz = overflows each second).
         ADCSRA |= (1 << ADSC); // start a adc conversion.
@@ -275,6 +299,7 @@ uint8_t read_time_optical() {
         }
         // once CRC is OK and time is set, return.
     } while (!succes);
+    TIMSK2 = (1 << TOIE2); // re-enable overflow interrupt (clocktick)
     return succes;
 }
 
@@ -600,16 +625,12 @@ void display_date(uint8_t d_o_w, uint8_t day, uint8_t month, uint16_t year) // d
 
 ISR(TIMER2_OVF_vect) {
     /*RTC timing with Timer2. Triggers at 1 Hz.*/
+    // ADCSRA |= (1 << ADSC); // start a adc conversion (for light sensor, in sleep mode, TODO: now unused).
     clocktick(); // one second has passed
 }
 
 ISR(ADC_vect) {
-    /* ADC for light sensor and voltage feedback.
-     * 
-     * for voltage feedback there is a 1M/2k2  1:455 divider and a 1.1V reference voltage, and a 8 bit result.
-     * So 1.1V/256 = 4,3 mV per tick * 455 = 1,96 V per tick -> 75 ticks is about 147 V.
-     * there is quite a voltage swing when neons load the smps, so keep enough margin to ignite the neon
-     *
+    /* ADC for light sensor 
      */
 
     diff = adcresult; // use previous result to calculate difference
