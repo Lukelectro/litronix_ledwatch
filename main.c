@@ -156,12 +156,12 @@ int main(void) {
     } while (0); // do-while(0) == test once)
 #endif
   
-#if 1    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
+#if 0    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
     while(1){
-// test hoe zuinig sleep is:
+// test hoe zuinig sleep is, en test pin change interrupt:
         //cli();
         sei(); // test with 1 s interrupt of timer
-        // TODO: test with pin change interupt instead of ADC for light sensor. Does that even work/trigger?
+        // TODO: test with pin change interupt instead of ADC for light sensor. Does that even work/trigger? -- yes that works, but depends on sufficient light to get to '0'
         // PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
         PORTD|= (1<<PORTD7); // turn sensor ON;
         ADCSRA&=~(1<<ADEN); //disable ADC
@@ -174,8 +174,33 @@ int main(void) {
         waitalongbit();
         displayRaw(0x00,2); // turn display back off after interrupt
     }
+#endif
+#if 1
     // mostly the ADC is power hungy, 0.2 mA. The other half mA is the CPU and up to 30 uA (in light) the sensor. Timer2 runs lean
-    // so, try what power cosumption is if ADC is OFF when it is not used, and timer 2 wakes the chip to take an ADC reading each second.
+    // so, try what power cosumption is if ADC is OFF when it is not used, and timer 2 wakes the chip to take an ADC reading each second.?
+    // TODO: or try Analog comparator instead of ADC? -- Done. Works, but consumes 0.6 mA Maybe try reducing clock speed as well... Can't turn ADC of since its mux is used.
+    // -- tried reducing clockspeed, current draw then fluctuates between 0.2 and 0.6 mA (depending on clock speed!)
+    // Pin change interrupt works much better then sampling ADC once a second
+    // but maybe using comparator is less dependent on ambient light
+    // -- comparator still depends on sufficient ambient light. So might as well use pin change interrupt, so deeper sleep/less current consumption is possible
+    while(1){
+// test analog comparator for wake up. Select ADC0 for neg input and internal bandgap for plus reference:
+        sei();
+        PORTD|= (1<<PORTD7); // turn sensor ON;
+        ADCSRA&=~(1<<ADEN); //disable ADC
+        ADCSRB|=(1<<ACME); // mux ADC pin to AC min input
+        ACSR = (1<<ACBG); // analog comparator output on toggle, interupt enble, use bandgap for pos reference
+        waitalongbit(); // wait for analog reference to start up and stabilize
+        ACSR |= (1<<ACIE)|(1<<ACI); // clear flag and enable interrupt 
+        clock_prescale_set(clock_div_128); // reduce clock here, to reduce power consumption 
+        set_sleep_mode(SLEEP_MODE_IDLE); // to allow AC to wake chip, it cannot power down but must stay idle
+        sleep_mode(); 
+        // if it wakes up heren, wait a bit before next loop iteration/going to sleep again:
+        waitalongbit();
+        displayRaw(0x00,1); // turn display back off after interrupt
+        clock_prescale_set(clock_div_8); // back to 8/8=1MHz
+    }
+
 #endif
 
 #if 0 // disable to debug power usage and wake-gesture
@@ -649,6 +674,12 @@ ISR(PCINT1_vect) {
     // Pin change interrupt for light sensor
     displayRaw(0xFF,2);
 }
+
+ISR(ANALOG_COMP_vect) {
+    // Analog comparator interrupt for light sensor
+    displayRaw(0x1FF,1);
+}
+
 
 ISR(TIMER2_OVF_vect) {
     /*RTC timing with Timer2. Triggers at 1 Hz.*/
