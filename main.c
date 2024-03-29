@@ -5,7 +5,10 @@
  * Created 2024-03-22
  */
 
-// TODO: sleep mode zuiniger maken en synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
+// TODO: dit is de versie (branch) met de zuiniger sleep mode -- misschien is dat ook iets voor neonwatch?
+// -- display ON 5 mA. Sleep mode 0.02 mA. 
+// Wakes on pin change interrupt on light sensor pin. Less accurate, perhaps a bit difficult to trigger in low light conditions, but very economic/low power
+// TODO: synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -42,9 +45,10 @@ void display(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t); // 4 numbers
 
 volatile uint8_t adcresult, recd_data, count_light, count_dark, count_bits; /* used in adc interrupt but declared global for easy access */
 volatile int16_t diff;
+volatile uint8_t pinchanges;
 
 int main(void) {
-    uint8_t hour = 12, minute = 01, day = 01, dow = 0, month = 1;
+    uint8_t hour = 12, minute = 34, second=56, day = 01, dow = 0, month = 1;
     uint16_t year = 1970;
     /*init*/
     /*IO for Atmega48:
@@ -74,8 +78,8 @@ int main(void) {
 
     /*power consumption*/
     DIDR0 = (1 << ADC0D); // disable digital input buffer on ADC pin to minimize power consumption
-    PORTB=0xE7; // pullups on unused pins of PORTB.
-    ACSR=(1<<ACD); // disable analog comparator
+    PORTB = 0xE7; // pullups on unused pins of PORTB.
+    ACSR = (1 << ACD); // disable analog comparator
 
     /*timers*/
     /*RTC timer 2, clock 32.768kHz xtal*/
@@ -155,129 +159,55 @@ int main(void) {
         }
     } while (0); // do-while(0) == test once)
 #endif
-  
+
 #if 0    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
-    while(1){
-// test hoe zuinig sleep is, en test pin change interrupt:
+    while (1) {
+        // test hoe zuinig sleep is, en test pin change interrupt:
         //cli();
         sei(); // test with 1 s interrupt of timer
         // TODO: test with pin change interupt instead of ADC for light sensor. Does that even work/trigger? -- yes that works, but depends on sufficient light to get to '0'
         // PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
-        PORTD|= (1<<PORTD7); // turn sensor ON;
-        ADCSRA&=~(1<<ADEN); //disable ADC
+        PORTD |= (1 << PORTD7); // turn sensor ON;
+        ADCSRA &= ~(1 << ADEN); //disable ADC
         /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
-        PCICR = (1<<PCIE1); // enable PCINT1 (PCINT14:8)
-        PCMSK1 = (1<<PCINT8); // mask-allow PCINT8
+        PCICR = (1 << PCIE1); // enable PCINT1 (PCINT14:8)
+        PCMSK1 = (1 << PCINT8); // mask-allow PCINT8
         set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-        sleep_mode(); 
+        sleep_mode();
         // if it wakes up heren, wait a bit before next loop iteration/going to sleep again:
         waitalongbit();
-        displayRaw(0x00,2); // turn display back off after interrupt
+        displayRaw(0x00, 2); // turn display back off after interrupt
     }
 #endif
-#if 1
-    // mostly the ADC is power hungy, 0.2 mA. The other half mA is the CPU and up to 30 uA (in light) the sensor. Timer2 runs lean
-    // so, try what power cosumption is if ADC is OFF when it is not used, and timer 2 wakes the chip to take an ADC reading each second.?
-    // TODO: or try Analog comparator instead of ADC? -- Done. Works, but consumes 0.6 mA Maybe try reducing clock speed as well... Can't turn ADC of since its mux is used.
-    // -- tried reducing clockspeed, current draw then fluctuates between 0.2 and 0.6 mA (depending on clock speed!)
-    // Pin change interrupt works much better then sampling ADC once a second
-    // but maybe using comparator is less dependent on ambient light
-    // -- comparator still depends on sufficient ambient light. So might as well use pin change interrupt, so deeper sleep/less current consumption is possible
-    while(1){
-// test analog comparator for wake up. Select ADC0 for neg input and internal bandgap for plus reference:
-        sei();
-        PORTD|= (1<<PORTD7); // turn sensor ON;
-        ADCSRA&=~(1<<ADEN); //disable ADC
-        ADCSRB|=(1<<ACME); // mux ADC pin to AC min input
-        ACSR = (1<<ACBG); // analog comparator output on toggle, interupt enble, use bandgap for pos reference
-        waitalongbit(); // wait for analog reference to start up and stabilize
-        ACSR |= (1<<ACIE)|(1<<ACI); // clear flag and enable interrupt 
-        clock_prescale_set(clock_div_128); // reduce clock here, to reduce power consumption 
-        set_sleep_mode(SLEEP_MODE_IDLE); // to allow AC to wake chip, it cannot power down but must stay idle
-        sleep_mode(); 
-        // if it wakes up heren, wait a bit before next loop iteration/going to sleep again:
-        waitalongbit();
-        displayRaw(0x00,1); // turn display back off after interrupt
-        clock_prescale_set(clock_div_8); // back to 8/8=1MHz
-    }
 
-#endif
 
-#if 0 // disable to debug power usage and wake-gesture
+#if 1 // disable to debug power usage and wake-gesture
     while (!read_time_optical()) {
     } // sync time on reboot
+#else
+    settime_date(hour, minute, second, day , month, year/100, year%100, dow); // h,m,s,d,m,y1,y0,dow
+                   
 #endif
+
+    PORTD |= (1 << PORTD7); // turn sensor ON;
+    ADCSRA &= ~(1 << ADEN); //disable ADC
+    PRR|=(1<<PRADC); // power down ADC
+    /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
+    PCICR = (1 << PCIE1); // enable PCINT1 (PCINT14:8)
+    PCMSK1 = (1 << PCINT8); // mask-allow PCINT8
+
+
     /*loop*/
-
     while (1) {
-
-        static enum {
-            STAGE1, STAGE2, STAGE3, DETECTED
-        } detect = DETECTED; //start at detected, so time gets displayed directly after setting it.
-        static uint8_t timeout, now;
-        /*
-         * detect dark/light/dark sequence as wakeup to turn the display on,
-         * reduce clock to save power in the meantime (maybe could sleep instead?)
-         */
-
-        PORTD |=(1<<PD7); // power on light sensor
-        PORTC |=(1<<PC0); // enable internal pull-up on lightsensor pin (as external 100k is a bit to0 much)
-        
-        now = TCNT2; // to get somewhat of a fixed sample rate, use Timer 2 (RTC timer, increments at 256 Hz = overflows each second).        
-        ADCSRA |= (1 << ADSC); // start a adc conversion for light sensor.
-        
-#if 0 // test another attempt at sleep mode, also does not work (display cannot be triggered to turn on again / light sensor seams 'deaf'.)
-        set_sleep_mode(SLEEP_MODE_ADC);
-        sleep_mode(); // sleep until ADC is done
-        PORTD &=~(1<<PD7); // power off light sensor
-        PORTC &=~(1<<PC0); // disable internal pull-up on lightsensor pin
-#endif         
-        timeout++;
-        switch (detect) { // detect change in light level / hand wave above watch, and then display the time.
-                /* higher lightsensor reading is darker. So positive diff means it got brighter and neg. diff means it got darker */
-            case STAGE1:
-                timeout = 0;
-                if (diff< -DIFFTHRESH) detect = STAGE2;
-                break;
-            case STAGE2:
-                if (diff > DIFFTHRESH) detect = STAGE3;
-                break;
-            case STAGE3:
-                if ((diff< -DIFFTHRESH) && (adcresult >= LDTHRESH)) detect = DETECTED;
-                break;
-            case DETECTED:
-
-                gettime_hm(&hour, &minute);
-                gettime_date(&dow, &day, &month, &year);
-
-                display_time(hour, minute);
-                display_date(dow, day, month, year);
-
-                detect = STAGE1;
-            default:
-                detect = STAGE1;
+        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+        sleep_mode();
+        // when it wakes up here, check if there have been multiple pin changes in the last second. if so display time, else, continue sleeping
+        if(pinchanges>=2){
+        gettime_hms(&hour, &minute,&second);
+        gettime_date(&dow, &day, &month, &year);
+        display_time(hour, minute);
+        display_date(dow, day, month, year);
         }
-
-#if 1
-        clock_prescale_set(clock_div_128); // reduce clock further here, to reduce power consumption 
-        // TODO: this can be made smarter, perhaps trigger lightsensor ADC on clocktick? and use interrupt? and sleep in the meantime?
-        //now at 0.5 mA, depending on Vcc (@3.7V))
-        while ((uint8_t) (TCNT2 - now) < 32) {
-            // wait 32/256 = 1/8 of a second, so 8 Samples/s. (125 ms)
-        };
-        clock_prescale_set(clock_div_8); // restore to 1 MHz
-
-        if (timeout > 24) { // 24* 1/8s = 24/8s=3s
-            detect = STAGE1;
-        }
-#endif
-#if 0
-        if (timeout > 5) { // 5s, with 1 sample per second...
-            detect = STAGE1;
-        }
-        set_sleep_mode(SLEEP_MODE_PWR_SAVE);
-        sleep_mode(); // go to sleep for a second
-#endif // does not work
     }
     return 0;
 }
@@ -670,21 +600,23 @@ void display_date(uint8_t d_o_w, uint8_t day, uint8_t month, uint16_t year) // d
     }
     display(year / 1000 % 10, year / 100 % 10, year / 10 % 10, year % 10, 0, 80);
 }
+
 ISR(PCINT1_vect) {
     // Pin change interrupt for light sensor
-    displayRaw(0xFF,2);
+    //displayRaw(0xFF, 2);
+    pinchanges++;
 }
 
 ISR(ANALOG_COMP_vect) {
     // Analog comparator interrupt for light sensor
-    displayRaw(0x1FF,1);
+    displayRaw(0x1FF, 1);
 }
-
 
 ISR(TIMER2_OVF_vect) {
     /*RTC timing with Timer2. Triggers at 1 Hz.*/
     // ADCSRA |= (1 << ADSC); // start a adc conversion (for light sensor, in sleep mode, TODO: now unused).
     clocktick(); // one second has passed
+    pinchanges = 0; //reset number of pinchanges in the last second
 }
 
 ISR(ADC_vect) {
