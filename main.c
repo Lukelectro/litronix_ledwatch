@@ -159,11 +159,20 @@ int main(void) {
 #if 1    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
     while(1){
 // test hoe zuinig sleep is:
-        cli();
-        PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
+        //cli();
+        sei(); // test with 1 s interrupt of timer
+        // TODO: test with pin change interupt instead of ADC for light sensor. Does that even work/trigger?
+        // PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
+        PORTD|= (1<<PORTD7); // turn sensor ON;
         ADCSRA&=~(1<<ADEN); //disable ADC
+        /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
+        PCICR = (1<<PCIE1); // enable PCINT1 (PCINT14:8)
+        PCMSK1 = (1<<PCINT8); // mask-allow PCINT8
         set_sleep_mode(SLEEP_MODE_PWR_DOWN);
         sleep_mode(); 
+        // if it wakes up heren, wait a bit before next loop iteration/going to sleep again:
+        waitalongbit();
+        displayRaw(0x00,2); // turn display back off after interrupt
     }
     // mostly the ADC is power hungy, 0.2 mA. The other half mA is the CPU and up to 30 uA (in light) the sensor. Timer2 runs lean
     // so, try what power cosumption is if ADC is OFF when it is not used, and timer 2 wakes the chip to take an ADC reading each second.
@@ -635,6 +644,10 @@ void display_date(uint8_t d_o_w, uint8_t day, uint8_t month, uint16_t year) // d
             break;
     }
     display(year / 1000 % 10, year / 100 % 10, year / 10 % 10, year % 10, 0, 80);
+}
+ISR(PCINT1_vect) {
+    // Pin change interrupt for light sensor
+    displayRaw(0xFF,2);
 }
 
 ISR(TIMER2_OVF_vect) {
