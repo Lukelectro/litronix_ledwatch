@@ -9,6 +9,7 @@
 // -- display ON 5 mA. Sleep mode 0.02 mA. 
 // Wakes on pin change interrupt on light sensor pin. Less accurate, perhaps a bit difficult to trigger in low light conditions, but very economic/low power
 // TODO: synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
+// TODO: DST-bit weggelaten aan python kant, dus todo: ook hier dst bit weghalen, sourcecode samenvoegen/mergen naar main zodat het weer overzichtelijk is.
 
 #include <xc.h>
 #include <avr/interrupt.h>
