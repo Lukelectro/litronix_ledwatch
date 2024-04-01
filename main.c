@@ -16,11 +16,9 @@
 #include <util/crc16.h> // using crc8, contained therein.
 #include <avr/sleep.h>
 #include <avr/power.h>
+
 #define F_CPU 1e6 // aactualy run at 1 MHz, probably fast enough
-
-#define LDTHRESH 150 // 0-255 light/dark threshold for setting time /data reception. Adapt for screen brightness.
-// todo: tune for new sensor
-
+#define LDTHRESH 200 // 0-255 light/dark threshold for setting time /data reception. Adapt for screen brightness.
 #define DIFFTHRESH 15 // 0-255 threshold for light/dark difference for gesture detection for 'display switch on'.
 
 
@@ -29,13 +27,11 @@ FUSES = {
     .high = 0xD9, // D9=default. to enable debugwire use 0x99
     .extended = 0xFF, // geen BOD
 };
-
 LOCKBITS = 0xFF; // {LB=PROG_VER_DISABLED, BLB0=LPM_SPM_DISABLE, BLB1=LPM_SPM_DISABLE}
 
 uint8_t read_time_optical();
 void display_time(uint8_t, uint8_t); // hour, minute
 void display_date(uint8_t, uint8_t, uint8_t, uint16_t); // day-of-week, day, month, year
-
 void waitabit(); // waits 1 tick of TCNT2, the RTC timer ticking at 256 Hz. So waits about 4ms.
 void waitalongbit(); // waits multiple ticks, about 1 s;
 void displayRaw(uint16_t, uint8_t);
@@ -70,16 +66,13 @@ int main(void) {
      * PD6 seg E
      * PD7 lightsensor power
      */
-
     DDRB = (1 << DDB3) | (1 << DDB4);
     DDRC = (1 << DDC1) | (1 << DDC2) | (1 << DDC3) | (1 << DDC4) | (1 << DDC5);
     DDRD = (1 << DDD0) | (1 << DDD1) | (1 << DDD2) | (1 << DDD3) | (1 << DDD4) | (1 << DDD5) | (1 << DDD6);
-
     /*power consumption*/
     DIDR0 = (1 << ADC0D); // disable digital input buffer on ADC pin to minimize power consumption
     PORTB = 0xE7; // pullups on unused pins of PORTB.
     ACSR = (1 << ACD); // disable analog comparator
-
     /*timers*/
     /*RTC timer 2, clock 32.768kHz xtal*/
     ASSR = (1 << AS2); // first set clock to async operation, as that might corrupt registers, and since these are set later it does not matter
@@ -87,7 +80,6 @@ int main(void) {
     TCCR2B = (1 << CS22) | (1 << CS20); // divide clock by 128, so 32768/128/256 overflow each second.
     TIFR2 = 0x07; // clear interrupt flags
     TIMSK2 = (1 << TOIE2); // enable overflow interrupt
-
     /*ADC*/
     ADCSRA = 0; // disable/reset ADC
     /*set adc to correct ch and samplerate for autotrigger (adc clock), or disable auto trigger*/
@@ -95,17 +87,14 @@ int main(void) {
     ADCSRA = (1 << ADIE) | (1 << ADSC) | (1 << ADEN) | (1 << ADPS2); // start ADC, enable interrupt, single conversion, clock /16 (so 1M/16=62.5 kHz);
 
     sei(); //enable interrupts
-
     PORTD |= (1 << PORTD7); /*Turn sensor on*/
+
+    //display tests
+#if 0
+    //blink dp:
     // set common cathodes high (OFF) for all but CCDP
     PORTD |= (1 << PORTD2) | (1 << PORTD5);
     PORTC |= (1 << PORTC1) | (1 << PORTC3);
-
-
-    //display tests
-
-#if 0
-    //blink dp:
     for (uint8_t i = 0; i < 4; i++) {
         PORTB |= (1 << PORTB4); // set I/DP on
         waitalongbit();
@@ -527,13 +516,11 @@ void display_date(uint8_t d_o_w, uint8_t day, uint8_t month, uint16_t year) // d
 
 ISR(PCINT1_vect) {
     // Pin change interrupt for light sensor
-    //displayRaw(0xFF, 2);
     pinchanges++;
 }
 
 ISR(TIMER2_OVF_vect) {
     /*RTC timing with Timer2. Triggers at 1 Hz.*/
-    // ADCSRA |= (1 << ADSC); // start a adc conversion (for light sensor, in sleep mode, TODO: now unused).
     clocktick(); // one second has passed
     pinchanges = 0; //reset number of pinchanges in the last second
 }
