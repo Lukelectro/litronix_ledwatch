@@ -5,11 +5,10 @@
  * Created 2024-03-22
  */
 
-// TODO: dit is de versie (branch) met de zuiniger sleep mode -- misschien is dat ook iets voor neonwatch?
+// // TODO misschien is PCint gebruiken om wakker te worden ook iets voor neonwatch? En het versimpelde data-ontvangen ook?
 // -- display ON 5 mA. Sleep mode 0.02 mA. 
 // Wakes on pin change interrupt on light sensor pin. Less accurate, perhaps a bit difficult to trigger in low light conditions, but very economic/low power
 // TODO: synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
-// TODO: DST-bit weggelaten aan python kant, dus todo: ook hier dst bit weghalen, sourcecode samenvoegen/mergen naar main zodat het weer overzichtelijk is.
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -214,10 +213,10 @@ int main(void) {
 }
 
 uint8_t read_time_optical() {
-    static uint8_t index, receive_buffer[10], now, succes, crc = 0;
+    static uint8_t index, receive_buffer[9], now, succes, crc = 0;
 
     enum {
-        SYNC, READDATA, READCRC, CHECKCRC
+        SYNC, READDATA, CHECKCRC
     } state = SYNC;
     succes = 0;
     //prepare so dp can be used for debug:
@@ -242,32 +241,25 @@ uint8_t read_time_optical() {
             case SYNC:
                 crc = 0; // reset crc
                 index = 0; // reset index
-                if (count_bits != 0) state = READDATA;
+                if (count_bits > 4) state = READDATA; // once the first few bits are in, start reading
                 break;
             case READDATA:
                 if (count_bits == 8 * (index + 1)) {
                     receive_buffer[index] = recd_data;
                     index++;
                 }
-                if (count_bits < 8) state = SYNC; // if count_bits has been reset to 0, there has been a time-out
-                if (index >= 9) state = READCRC; // all data is in
-                break;
-            case READCRC:
-                if (count_bits == 8 * 10) {
-                    receive_buffer[9] = recd_data;
-                    state = CHECKCRC;
-                }
+                if (count_bits < 3) state = SYNC; // if count_bits has been reset to 0, there has been a time-out
+                if (index >= 9) state = CHECKCRC; // all data (incl. CRC) is in
                 break;
             case CHECKCRC:
                 //crc is calculated here as not to spend time on it during reception.
-                for (uint8_t i = 0; i < 9; i++) {
+                for (uint8_t i = 0; i < 8; i++) {
                     crc = _crc8_ccitt_update(crc, receive_buffer[i]);
                 }
 
-                if (crc == receive_buffer[9]) {// if crc matches, set time to new received value, else retry                        
+                if (crc == receive_buffer[8]) {// if crc matches, set time to new received value, else retry                        
                     settime_date(receive_buffer[0], receive_buffer[1], receive_buffer[2],
-                            receive_buffer[5], receive_buffer[6], receive_buffer[7], receive_buffer[8], receive_buffer[4]); // h,m,s,d,m,y1,y0,dow
-                    //recieve_buffer[3] is IsDST flag, which as of now is unused. Yet.
+                            receive_buffer[4], receive_buffer[5], receive_buffer[6], receive_buffer[7], receive_buffer[3]); // h,m,s,d,m,y1,y0,dow
                     succes = 1;
                 } else {
                     crc = 0;
