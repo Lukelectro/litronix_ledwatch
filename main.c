@@ -6,7 +6,7 @@
  */
 
 // // TODO misschien is PCint gebruiken om wakker te worden ook iets voor neonwatch? En het versimpelde data-ontvangen ook?
-// -- display ON 5 mA. Sleep mode 0.02 mA. 
+// -- display ON 5 mA. Sleep mode 0.1mA 
 // Wakes on pin change interrupt on light sensor pin. Less accurate, perhaps a bit difficult to trigger in low light conditions, but very economic/low power
 
 #include <xc.h>
@@ -151,7 +151,7 @@ int main(void) {
 
     /*loop*/
     while (1) {
-        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+        set_sleep_mode(SLEEP_MODE_PWR_SAVE); // NOT powerdown, else timer2 stops running//keeping time...
         sleep_mode();
         // when it wakes up here, check if there have been multiple pin changes in the last second. if so display time, else, continue sleeping
         if (pinchanges >= 2) {
@@ -174,8 +174,6 @@ uint8_t read_time_optical() {
     //prepare so dp can be used for debug:
     PORTD = 0xA4; // all segmenst 0, all CC high except CCDP, light sensor ON
     PORTC |= (1 << PORTC1) | (1 << PORTC3) | (1 << PORTC0); // CC's high (inactive), internal pullup on lightsensor-input also on 
-
-    TIMSK2 &= ~(1 << TOIE2); // disable overflow interrupt, so time stops ticking
 
     do {
         now = TCNT2; // to get somewhat of a fixed sample rate, use Timer 2 (RTC timer, increments at 256 Hz = overflows each second).
@@ -209,9 +207,11 @@ uint8_t read_time_optical() {
                     crc = _crc8_ccitt_update(crc, receive_buffer[i]);
                 }
 
-                if (crc == receive_buffer[8]) {// if crc matches, set time to new received value, else retry                        
+                if (crc == receive_buffer[8]) {// if crc matches, set time to new received value, else retry   
+                    cli(); // prevent clocktick during setting of clock
                     settime_date(receive_buffer[0], receive_buffer[1], receive_buffer[2],
                             receive_buffer[4], receive_buffer[5], receive_buffer[6], receive_buffer[7], receive_buffer[3]); // h,m,s,d,m,y1,y0,dow
+                    sei();
                     succes = 1;
                 } else {
                     crc = 0;
@@ -222,7 +222,6 @@ uint8_t read_time_optical() {
         }
         // once CRC is OK and time is set, return.
     } while (!succes);
-    TIMSK2 = (1 << TOIE2); // re-enable overflow interrupt (clocktick)
     return succes;
 }
 
