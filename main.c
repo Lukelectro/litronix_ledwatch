@@ -8,7 +8,6 @@
 // // TODO misschien is PCint gebruiken om wakker te worden ook iets voor neonwatch? En het versimpelde data-ontvangen ook?
 // -- display ON 5 mA. Sleep mode 0.02 mA. 
 // Wakes on pin change interrupt on light sensor pin. Less accurate, perhaps a bit difficult to trigger in low light conditions, but very economic/low power
-// TODO: synchronisatie betrouwbaarder maken, en DST bit gebruiken (of verwijderen).
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -48,7 +47,7 @@ volatile int16_t diff;
 volatile uint8_t pinchanges;
 
 int main(void) {
-    uint8_t hour = 12, minute = 34, second=56, day = 01, dow = 0, month = 1;
+    uint8_t hour = 12, minute = 34, second = 56, day = 01, dow = 0, month = 1;
     uint16_t year = 1970;
     /*init*/
     /*IO for Atmega48:
@@ -114,21 +113,8 @@ int main(void) {
         waitalongbit();
     }
 #endif
-
-    while (0) {
-        uint16_t d = 1, w = 1; //data, where?
-        for (uint8_t j = 0; j < 5; j++) {
-            for (uint8_t i = 0; i < 9; i++) {
-                displayRaw(d, w);
-                d = d << 1;
-                waitalongbit();
-            }
-            d = 1;
-            w++;
-        }
-    }
-
-    while (0) {
+#if 0
+    while (1) { // display and char rom test
         char test[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 'a', 'A', 'b', 'c', 'd', 'e', 'f', 'g', 'G', 'h', 'H', 'i', 'j', 'l', 'm', 'M', 'n', 'N', 'o', 'O', 'p', 'q', 'r', 's', 't', 'T', 'u', 'v', 'w', 'y', 'z'};
         uint8_t dp = 0;
         for (uint8_t i = 0; i<sizeof (test); i++) {
@@ -136,7 +122,7 @@ int main(void) {
             dp = ~dp;
         }
     }
-
+#endif
 #if 0
     while (1) { // test/debug light sensor
         ADCSRA |= (1 << ADSC); // start a adc conversion for light sensor. 
@@ -144,7 +130,7 @@ int main(void) {
     };
 #endif 
 
-#if 0
+#if 0 // display test and day / month names test
     do {
         uint8_t dow = 0, day = 1, month = 1;
         uint16_t year = 1987;
@@ -160,53 +146,30 @@ int main(void) {
     } while (0); // do-while(0) == test once)
 #endif
 
-#if 0    // NOTE: dit is de andere branch, special voor stroomgebruik! In main branch is alles onbeschadigd!
-    while (1) {
-        // test hoe zuinig sleep is, en test pin change interrupt:
-        //cli();
-        sei(); // test with 1 s interrupt of timer
-        // TODO: test with pin change interupt instead of ADC for light sensor. Does that even work/trigger? -- yes that works, but depends on sufficient light to get to '0'
-        // PORTD &= ~(1 << PORTD7); /*Turn sensor off*/
-        PORTD |= (1 << PORTD7); // turn sensor ON;
-        ADCSRA &= ~(1 << ADEN); //disable ADC
-        /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
-        PCICR = (1 << PCIE1); // enable PCINT1 (PCINT14:8)
-        PCMSK1 = (1 << PCINT8); // mask-allow PCINT8
-        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-        sleep_mode();
-        // if it wakes up heren, wait a bit before next loop iteration/going to sleep again:
-        waitalongbit();
-        displayRaw(0x00, 2); // turn display back off after interrupt
-    }
-#endif
-
-
 #if 1 // disable to debug power usage and wake-gesture
     while (!read_time_optical()) {
     } // sync time on reboot
 #else
-    settime_date(hour, minute, second, day , month, year/100, year%100, dow); // h,m,s,d,m,y1,y0,dow
-                   
+    settime_date(hour, minute, second, day, month, year / 100, year % 100, dow); // h,m,s,d,m,y1,y0,dow                
 #endif
 
     PORTD |= (1 << PORTD7); // turn sensor ON;
     ADCSRA &= ~(1 << ADEN); //disable ADC
-    PRR|=(1<<PRADC); // power down ADC
+    PRR |= (1 << PRADC); // power down ADC
     /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
     PCICR = (1 << PCIE1); // enable PCINT1 (PCINT14:8)
     PCMSK1 = (1 << PCINT8); // mask-allow PCINT8
-
 
     /*loop*/
     while (1) {
         set_sleep_mode(SLEEP_MODE_PWR_DOWN);
         sleep_mode();
         // when it wakes up here, check if there have been multiple pin changes in the last second. if so display time, else, continue sleeping
-        if(pinchanges>=2){
-        gettime_hms(&hour, &minute,&second);
-        gettime_date(&dow, &day, &month, &year);
-        display_time(hour, minute);
-        display_date(dow, day, month, year);
+        if (pinchanges >= 2) {
+            gettime_hms(&hour, &minute, &second);
+            gettime_date(&dow, &day, &month, &year);
+            display_time(hour, minute);
+            display_date(dow, day, month, year);
         }
     }
     return 0;
@@ -288,46 +251,13 @@ void waitalongbit() {
 
 void displayRaw(uint16_t data, uint8_t where) // data bits 0..8 for segment A..I, I also is DP. Where for which CC (4,3,2,1 or DP 0). 
 {
-    //TODO: this probably can be faster if first all display bits are reset and then set to the data value. So no more if-else
-#if 0
-    //what? (bits 0..8)
-    PORTC = data & 0x01 ? PORTC | (1 << PC5) : PORTC&~(1 << PC5); // seg A, portC5
-    PORTC = data & 0x02 ? PORTC | (1 << PC4) : PORTC&~(1 << PC4); // seg B, portC4
-    if (data & 0x04) PORTC |= (1 << PC2);
-    else PORTC &= ~(1 << PC2); // seg C, portC2
-    if (data & 0x08) PORTB |= (1 << PB3);
-    else PORTB &= ~(1 << PB3); // seg D, portB3
-    if (data & 0x10)PORTD |= (1 << PD6);
-    else PORTD &= ~(1 << PD6); // seg E, portD6
-    if (data & 0x20)PORTD |= (1 << PD3);
-    else PORTD &= ~(1 << PD3); // seg F, portD3
-    if (data & 0x40)PORTD |= (1 << PD4);
-    else PORTD &= ~(1 << PD4); // seg G, portD4
-    if (data & 0x80)PORTD |= (1 << PD1);
-    else PORTD &= ~(1 << PD1); // seg H, portD1
-    if (data & 0x100) PORTB |= (1 << PB4);
-    else PORTB &= ~(1 << PB4); // seg I, portB4
-
-    //where?
-    if (where == 0)PORTD &= ~(1 << PD5);
-    else PORTD |= (1 << PD5); // CC4, portD5
-    if (where == 1)PORTD &= ~(1 << PD2);
-    else PORTD |= (1 << PD2); // CC3, portd2
-    if (where == 2)PORTC &= ~(1 << PC3);
-    else PORTC |= (1 << PC3); // CC2, portc3
-    if (where == 3)PORTC &= ~(1 << PC1);
-    else PORTC |= (1 << PC1); // CC1, portc1
-    if (where == 4)PORTD &= ~(1 << PD0);
-    else PORTD |= (1 << PD0); // CCDP, portd0 
-#endif
-
     // set all CC's, clear all segments:
     PORTB &= ~((1 << PORTB3) | (1 << PORTB4));
     PORTC &= ~((1 << PC5) | (1 << PC4) | (1 << PC2));
     PORTC |= (1 << PC3) | (1 << PC1);
     PORTD = 0xA5;
 
-    //what? (bits 0..8) (uses PINx to toggle bit, instead of read, modify, write)
+    //what? (bits 0..8) (uses PINx to toggle bit, instead of read, modify, write. It starts from reset, so toggle will set it)
     if (data & 0x01) PINC = (1 << PC5); // seg A, portC5
     if (data & 0x02) PINC = (1 << PC4); // seg B, portC4
     if (data & 0x04) PINC = (1 << PC2); // seg C, portC2
@@ -338,7 +268,7 @@ void displayRaw(uint16_t data, uint8_t where) // data bits 0..8 for segment A..I
     if (data & 0x80) PIND = (1 << PD1); // seg H, portD1
     if (data & 0x100)PINB = (1 << PB4); // seg I, portB4
 
-    //where?
+    //where? (Here toggle starts from set and will clear it, so driving common cathode low, as intended)
     if (where == 0)PIND = (1 << PD5); // CC4, portD5
     if (where == 1)PIND = (1 << PD2); // CC3, portd2
     if (where == 2)PINC = (1 << PC3); // CC2, portc3
@@ -372,6 +302,7 @@ uint16_t numTo7Seg(uint8_t num) {
              *  or ma, di, do, vr, za, zo
              * and Jan Feb Mar Apr May/Mei Jun Jul Aug Sept oct nov dec
              * so needed are abcdefghijlmnoprstuvwyz - no k, no q, no x; 
+             * and the rest is extra (capitals and lowercase and l 1 | )
              */
         case 'a': return 0x5F;
             break;
@@ -598,11 +529,6 @@ ISR(PCINT1_vect) {
     // Pin change interrupt for light sensor
     //displayRaw(0xFF, 2);
     pinchanges++;
-}
-
-ISR(ANALOG_COMP_vect) {
-    // Analog comparator interrupt for light sensor
-    displayRaw(0x1FF, 1);
 }
 
 ISR(TIMER2_OVF_vect) {
