@@ -41,7 +41,7 @@ void clocktick(){
  */
 
 void checkdays(){
-if(dayofweek>=6){
+if(dayofweek>=7){ // 7=0=monday, 1=tue,2=wed,3=thurs,4=fri,5=sat,6=sun
         dayofweek=0;
     }
     switch(months){
