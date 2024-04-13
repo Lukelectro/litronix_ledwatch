@@ -18,8 +18,7 @@
 #include <avr/power.h>
 
 #define F_CPU 1e6 // aactualy run at 1 MHz, probably fast enough
-#define LDTHRESH 200 // 0-255 light/dark threshold for setting time /data reception. Adapt for screen brightness.
-#define DIFFTHRESH 15 // 0-255 threshold for light/dark difference for gesture detection for 'display switch on'.
+#define LDTHRESH 150 // 0-255 light/dark threshold for setting time /data reception. Adapt for screen brightness.
 
 
 FUSES = {
@@ -142,7 +141,6 @@ int main(void) {
     settime_date(hour, minute, second, day, month, year / 100, year % 100, dow); // h,m,s,d,m,y1,y0,dow                
 #endif
 
-    PORTD |= (1 << PORTD7); // turn sensor ON;
     ADCSRA &= ~(1 << ADEN); //disable ADC
     PRR |= (1 << PRADC); // power down ADC
     /*set up pin change interrupt on portc.0 == light sensor. that is PCINT8*/
@@ -171,9 +169,10 @@ uint8_t read_time_optical() {
         SYNC, READDATA, CHECKCRC
     } state = SYNC;
     succes = 0;
+    PORTC |= (1<<PORTC0); // internal pullup on on PC0, to change light sensor sensitivity to be less sensitive to light
     //prepare so dp can be used for debug:
     PORTD = 0xA4; // all segmenst 0, all CC high except CCDP, light sensor ON
-    PORTC |= (1 << PORTC1) | (1 << PORTC3) | (1 << PORTC0); // CC's high (inactive), internal pullup on lightsensor-input also on 
+    PORTC |= (1 << PORTC1) | (1 << PORTC3); // CC's high (inactive)
 
     do {
         now = TCNT2; // to get somewhat of a fixed sample rate, use Timer 2 (RTC timer, increments at 256 Hz = overflows each second).
@@ -222,6 +221,7 @@ uint8_t read_time_optical() {
         }
         // once CRC is OK and time is set, return.
     } while (!succes);
+    PORTC &= ~(1<<PORTC0); // internal pullup OFF on light sensor pin, to change sensitivity back.
     return succes;
 }
 
