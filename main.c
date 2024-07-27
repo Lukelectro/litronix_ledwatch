@@ -154,8 +154,11 @@ int main(void) {
         // when it wakes up here, check if there have been multiple pin changes in the last second. if so display time, else, continue sleeping
         if (pinchanges >= 2) {
             gettime_hms(&hour, &minute, &second);
-            gettime_date(&dow, &day, &month, &year);
             display_time(hour, minute);
+            gettime_hms(&hour, &minute, &second);
+            display_time(hour, minute);
+            /* Display 'Time' longer then 'Date' */
+            gettime_date(&dow, &day, &month, &year);
             display_date(dow, day, month, year);
         }
     }
